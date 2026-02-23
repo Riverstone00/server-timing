@@ -2,19 +2,22 @@
 
 import { useState, useEffect, useRef } from "react";
 
-// 번역 사전: 여기서 한글(ko) 텍스트를 나중에 입맛대로 다듬으면 돼!
+// 다국어 사전: 피드백 반영 (안내 문구 추가 및 세이프 기준 수정)
 const DIC = {
   en: {
+    title: "ServerCatch",
+    subTitle: "Server Time Just for You",
     placeholder: "Enter Target URL",
-    syncedTime: "Synced Server Time",
+    syncedTime: "Server time including network speed.",
+    guideMsg: "Click exactly at the target time.",
     offset: "Offset",
     tune: "Tune",
-    syncIdle: "SYNC OFFSET",
-    syncScanning: "FAST SCANNING...",
-    syncCalibrating: "CALIBRATING...",
-    syncSuccess: "SYNC SUCCESS",
-    syncUnstable: "SYNC UNSTABLE",
-    syncError: "SYNC ERROR",
+    syncIdle: "SYNC",
+    syncScanning: "SCANNING",
+    syncCalibrating: "CALIB",
+    syncSuccess: "SUCCESS",
+    syncUnstable: "UNSTABLE",
+    syncError: "ERROR",
     testIdle: "Test Timing",
     testTesting: "Testing...",
     progress: "Progress",
@@ -24,19 +27,23 @@ const DIC = {
     statusComplete: "Complete",
     successRate: "Success Rate",
     safe: "Safe",
-    details: "Detailed Strike Results"
+    details: "Detailed Strike Results",
+    safeCondition: "* Safe: Timing error within 0ms ~ 50ms"
   },
   ko: {
+    title: "서버캐치",
+    subTitle: "당신만을 위한 서버시간",
     placeholder: "타겟 URL 입력",
-    syncedTime: "동기화된 서버 시간",
+    syncedTime: "네트워크 속도를 포함한 서버시간입니다.",
+    guideMsg: "목표 시간 정각에 클릭하세요",
     offset: "오프셋",
     tune: "미세조정",
-    syncIdle: "오프셋 동기화",
-    syncScanning: "고속 스캔 중...",
-    syncCalibrating: "영점 조절 중...",
-    syncSuccess: "동기화 성공",
-    syncUnstable: "동기화 불안정",
-    syncError: "동기화 오류",
+    syncIdle: "동기화",
+    syncScanning: "스캔 중",
+    syncCalibrating: "조절 중",
+    syncSuccess: "성공",
+    syncUnstable: "불안정",
+    syncError: "오류",
     testIdle: "타이밍 테스트",
     testTesting: "테스트 중...",
     progress: "진행도",
@@ -46,7 +53,8 @@ const DIC = {
     statusComplete: "테스트 완료",
     successRate: "성공률",
     safe: "안전",
-    details: "상세 테스트 결과"
+    details: "상세 테스트 결과",
+    safeCondition: "* 안전(Safe) 기준: 서버 도달 오차 0ms ~ 50ms 이내"
   }
 };
 
@@ -54,7 +62,8 @@ type SyncStatus = 'IDLE' | 'SCANNING' | 'CALIBRATING' | 'SUCCESS' | 'UNSTABLE' |
 type TestStatus = 'STARTING' | 'TESTING' | 'COMPLETE';
 
 export default function Home() {
-  const [lang, setLang] = useState<'en' | 'ko'>('en');
+  // 기본 언어 한국어 설정
+  const [lang, setLang] = useState<'en' | 'ko'>('ko');
   const t = DIC[lang];
 
   const [now, setNow] = useState<number>(0); 
@@ -77,6 +86,11 @@ export default function Home() {
     stateRef.current = { targetUrl };
   }, [targetUrl]);
 
+  // 브라우저 탭 타이틀 설정
+  useEffect(() => {
+    document.title = lang === 'ko' ? "서버캐치 - 당신만을 위한 서버시간" : "ServerCatch - Server Time Just for You";
+  }, [lang]);
+
   const fetchVerify = async () => {
     const encodedUrl = encodeURIComponent(stateRef.current.targetUrl);
     const res = await fetch(`/api/verify?url=${encodedUrl}`, { cache: 'no-store' });
@@ -88,7 +102,6 @@ export default function Home() {
     return new Promise((resolve) => {
       const currentUI = Date.now() + currentOffset;
       const targetUI = Math.ceil((currentUI + 1500) / 1000) * 1000; 
-      
       const targetLocalEarly = targetUI - 50 - currentOffset;
       const targetLocalLate = targetUI - currentOffset;
 
@@ -165,83 +178,53 @@ export default function Home() {
       let currentOffset = baseOffset;
       let consecutiveSafe = 0;
       let attempts = 0;
-      const MAX_ATTEMPTS = 15; 
-      const TARGET_SAFE = 3;   
-
-      while (consecutiveSafe < TARGET_SAFE && attempts < MAX_ATTEMPTS) {
+      while (consecutiveSafe < 3 && attempts < 15) {
         attempts++;
-        setSyncState({ status: 'CALIBRATING', extra: `(${consecutiveSafe}/${TARGET_SAFE})` });
+        setSyncState({ status: 'CALIBRATING', extra: `(${consecutiveSafe}/3)` });
         setOffset(currentOffset); 
-
         const result = await runCalibrationTest(currentOffset);
-
-        if (result === 'SAFE') {
-          consecutiveSafe++;
-        } else {
+        if (result === 'SAFE') consecutiveSafe++;
+        else {
           consecutiveSafe = 0; 
           if (result === 'EARLY') currentOffset -= 15; 
           else if (result === 'LATE') currentOffset += 15; 
         }
       }
-
       setOffset(currentOffset);
-      if (consecutiveSafe >= TARGET_SAFE) {
-        setSyncState({ status: 'SUCCESS', extra: '' });
-      } else {
-        setSyncState({ status: 'UNSTABLE', extra: '' });
-      }
-
+      setSyncState({ status: consecutiveSafe >= 3 ? 'SUCCESS' : 'UNSTABLE', extra: '' });
     } catch (e) {
       setSyncState({ status: 'ERROR', extra: '' });
     } finally {
       setIsSyncing(false);
-      setTimeout(() => {
-        setSyncState(prev => prev.status !== 'IDLE' && !isSyncing ? { status: 'IDLE', extra: '' } : prev);
-      }, 3000);
+      setTimeout(() => setSyncState(prev => prev.status !== 'IDLE' && !isSyncing ? { status: 'IDLE', extra: '' } : prev), 3000);
     }
-  };
-
-  const runSingleTest = (): Promise<string> => {
-    return runCalibrationTest(offset);
   };
 
   const runTestSuite = async () => {
     if (isTesting || isSyncing) return;
     setIsTesting(true);
     setTestResult({ tested: 0, success: 0, statusKey: 'STARTING', results: [] });
-
     let successes = 0;
     const currentResults: string[] = [];
-    
     for (let i = 0; i < 5; i++) {
       setTestResult(prev => ({ ...prev!, statusKey: 'TESTING' }));
-      
-      const res = await runSingleTest();
+      const res = await runCalibrationTest(offset);
       if (res === 'SAFE') successes++;
       currentResults.push(res);
-      
-      setTestResult(prev => ({ 
-        ...prev!, 
-        tested: i + 1, 
-        success: successes,
-        results: [...currentResults] 
-      }));
+      setTestResult(prev => ({ ...prev!, tested: i + 1, success: successes, results: [...currentResults] }));
     }
-    
     setTestResult(prev => ({ ...prev!, statusKey: 'COMPLETE' }));
     setIsTesting(false);
   };
 
+  // 수동 오프셋 조정 함수 (복구 완료)
   const adjustOffset = (amount: number) => {
     setOffset(prev => prev + amount);
   };
 
   useEffect(() => {
     let animationFrameId: number;
-    const loop = () => {
-      setNow(Date.now());
-      animationFrameId = requestAnimationFrame(loop);
-    };
+    const loop = () => { setNow(Date.now()); animationFrameId = requestAnimationFrame(loop); };
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
   }, []);
@@ -251,13 +234,10 @@ export default function Home() {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
   };
 
-  const displayTime = formatTime(now + offset);
-
-  // 다국어 버튼 라벨 계산
   const getSyncBtnLabel = () => {
     switch(syncState.status) {
       case 'SCANNING': return t.syncScanning;
-      case 'CALIBRATING': return `${t.syncCalibrating} ${syncState.extra}`;
+      case 'CALIBRATING': return t.syncCalibrating;
       case 'SUCCESS': return t.syncSuccess;
       case 'UNSTABLE': return t.syncUnstable;
       case 'ERROR': return t.syncError;
@@ -265,33 +245,20 @@ export default function Home() {
     }
   };
 
-  const getTestStatusLabel = (key: TestStatus, tested: number) => {
-    if (key === 'STARTING') return t.statusStarting;
-    if (key === 'TESTING') return `${t.statusTesting} ${tested}/5...`;
-    return t.statusComplete;
-  };
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[#0a0f1e] text-slate-200 p-8 font-sans relative">
-      
-      {/* ENG / KOR 토글 스위치 */}
-      <div className="absolute top-6 right-6 flex bg-slate-900 border border-slate-700 rounded-full p-1 shadow-lg">
-        <button 
-          onClick={() => setLang('en')} 
-          className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${lang === 'en' ? 'bg-cyan-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          ENG
-        </button>
-        <button 
-          onClick={() => setLang('ko')} 
-          className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${lang === 'ko' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          KOR
-        </button>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-[#0a0f1e] text-slate-200 p-6 font-sans relative overflow-x-hidden">
+      {/* 언어 토글 */}
+      <div className="absolute top-6 right-6 flex bg-slate-900 border border-slate-700 rounded-full p-1 shadow-lg z-20">
+        <button onClick={() => setLang('en')} className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${lang === 'en' ? 'bg-cyan-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>ENG</button>
+        <button onClick={() => setLang('ko')} className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${lang === 'ko' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>KOR</button>
       </div>
 
-      <header className="mb-6 w-full max-w-md mt-8">
-        <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 shadow-inner focus-within:border-cyan-500 transition-colors">
+      <header className="mb-8 w-full max-w-md text-center">
+        <h1 className="text-4xl font-black text-white tracking-tight mb-2 uppercase">{t.title}</h1>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] opacity-80">{t.subTitle}</p>
+        
+        {/* 통합된 URL 및 동기화 바: UX 최적화 */}
+        <div className="mt-10 flex items-stretch bg-slate-900 border border-slate-700 rounded-2xl p-1.5 shadow-2xl focus-within:border-cyan-500/50 transition-all">
           <input 
             type="text" 
             value={targetUrl}
@@ -299,93 +266,84 @@ export default function Home() {
             placeholder={t.placeholder}
             className="bg-transparent border-none text-sm text-white w-full px-4 py-3 focus:outline-none font-mono"
           />
+          <button 
+            onClick={startDeepSync} 
+            disabled={isSyncing || isTesting} 
+            className="whitespace-nowrap bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 px-6 rounded-xl font-black text-[11px] transition-all text-white uppercase tracking-tighter shadow-lg active:scale-95"
+          >
+            {getSyncBtnLabel()}
+          </button>
         </div>
       </header>
 
-      <section className="w-full max-w-md bg-slate-950 border-2 border-cyan-500/30 rounded-3xl p-8 mb-8 text-center shadow-[0_0_40px_rgba(6,182,212,0.15)] relative overflow-hidden">
-        <div className="flex items-center justify-center gap-2 mb-3">
-          <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
-          <h2 className="text-xs font-bold text-cyan-400 uppercase tracking-[0.2em] m-0">{t.syncedTime}</h2>
+      {/* 시계 섹션: 안내 문구 추가 */}
+      <section className="w-full max-w-md bg-slate-950 border border-cyan-500/20 rounded-[2.5rem] p-10 mb-6 text-center shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative">
+        <div className="flex flex-col items-center justify-center gap-1 mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></div>
+            <h2 className="text-[10px] font-bold text-cyan-400/80 uppercase tracking-tight m-0">{t.syncedTime}</h2>
+          </div>
+          <p className="text-[11px] font-medium text-slate-400 m-0 mt-1">{t.guideMsg}</p>
         </div>
         
-        <div className="font-mono text-4xl md:text-5xl font-black text-white tabular-nums tracking-tighter">
-          {displayTime}
+        <div className="font-mono text-5xl md:text-6xl font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
+          {formatTime(now + offset)}
         </div>
         
-        <div className="mt-4 flex flex-col items-center gap-3">
-          <div className="inline-block bg-slate-900 border border-slate-800 rounded-full px-3 py-1">
-            <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">
+        <div className="mt-8 flex flex-col items-center gap-4">
+          <div className="bg-slate-900/80 border border-slate-800 rounded-full px-4 py-1.5 shadow-inner">
+            <span className="text-[11px] text-slate-400 font-mono uppercase tracking-widest">
               {t.offset} : <span className={offset === 0 ? "text-slate-500" : (offset > 0 ? "text-amber-400" : "text-green-400")}>
                 {offset > 0 ? `+${offset}` : offset} ms
               </span>
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-slate-900/50 p-1.5 rounded-xl border border-slate-800/50">
-            <button onClick={() => adjustOffset(-10)} className="w-10 h-7 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-colors active:scale-95">-10</button>
-            <button onClick={() => adjustOffset(-1)} className="w-8 h-7 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-colors active:scale-95">-1</button>
-            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest px-2">{t.tune}</span>
-            <button onClick={() => adjustOffset(1)} className="w-8 h-7 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-colors active:scale-95">+1</button>
-            <button onClick={() => adjustOffset(10)} className="w-10 h-7 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-colors active:scale-95">+10</button>
+          <div className="flex items-center gap-1 bg-slate-900/40 p-1 rounded-2xl border border-slate-800/50 backdrop-blur-sm">
+            <button onClick={() => adjustOffset(-10)} className="w-10 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-[10px] font-mono transition-all active:scale-90">-10</button>
+            <button onClick={() => adjustOffset(-1)} className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-[10px] font-mono transition-all active:scale-90">-1</button>
+            <span className="text-[9px] text-slate-600 font-black uppercase tracking-widest px-3">{t.tune}</span>
+            <button onClick={() => adjustOffset(1)} className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-[10px] font-mono transition-all active:scale-90">+1</button>
+            <button onClick={() => adjustOffset(10)} className="w-10 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-[10px] font-mono transition-all active:scale-90">+10</button>
           </div>
         </div>
       </section>
 
-      <main className="w-full max-w-md flex flex-col gap-4">
-        <div className="flex gap-3">
-          <button 
-            onClick={startDeepSync} 
-            disabled={isSyncing || isTesting} 
-            className="flex-1 bg-cyan-700 hover:bg-cyan-600 py-4 rounded-xl font-bold text-sm transition-all text-white disabled:opacity-50 uppercase tracking-wider"
-          >
-            {getSyncBtnLabel()}
-          </button>
-          <button 
-            onClick={runTestSuite} 
-            disabled={isTesting || isSyncing}
-            className="flex-1 bg-pink-600 hover:bg-pink-500 py-4 rounded-xl font-bold text-sm transition-all text-white disabled:opacity-50 uppercase tracking-wider"
-          >
-            {isTesting ? t.testTesting : t.testIdle}
-          </button>
-        </div>
+      <main className="w-full max-w-md">
+        <button 
+          onClick={runTestSuite} 
+          disabled={isTesting || isSyncing}
+          className="w-full bg-pink-600 hover:bg-pink-500 py-4 rounded-2xl font-black text-xs transition-all text-white disabled:opacity-50 uppercase tracking-widest shadow-xl active:scale-[0.98]"
+        >
+          {isTesting ? t.testTesting : t.testIdle}
+        </button>
 
         {testResult && (
-          <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 flex flex-col mt-2 shadow-lg">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-3">
-              <span className="text-sm font-bold text-slate-400">{t.progress}</span>
-              <span className="font-mono text-slate-200">{testResult.tested} / 5</span>
-            </div>
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-3">
-              <span className="text-sm font-bold text-slate-400">{t.status}</span>
-              <span className="font-mono text-cyan-400">{getTestStatusLabel(testResult.statusKey, testResult.tested)}</span>
-            </div>
+          <div className="bg-slate-900/90 backdrop-blur-md p-6 rounded-[2rem] border border-slate-800 flex flex-col mt-4 shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <span className="text-sm font-bold text-pink-400">{t.successRate}</span>
-              <span className={`font-mono font-black text-lg ${testResult.success >= 4 ? 'text-green-400' : (testResult.success > 0 ? 'text-amber-400' : 'text-pink-400')}`}>
+              <span className="text-[11px] font-black text-pink-400 uppercase tracking-tighter">{t.successRate}</span>
+              <span className={`font-mono font-black text-xl ${testResult.success >= 4 ? 'text-green-400' : 'text-amber-400'}`}>
                 {testResult.success} / 5 {t.safe}
               </span>
             </div>
-
-            <div className="pt-4 border-t border-slate-800 flex flex-col gap-2">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center mb-1">{t.details}</span>
-              <div className="grid grid-cols-5 gap-2">
-                {[0, 1, 2, 3, 4].map((i) => {
-                  const res = testResult.results[i];
-                  let colorClass = "text-slate-600 border-slate-800 bg-slate-900/50"; 
-                  
-                  if (res === 'SAFE') colorClass = "text-green-400 border-green-500/30 bg-green-500/10";
-                  else if (res === 'EARLY') colorClass = "text-amber-400 border-amber-500/30 bg-amber-500/10";
-                  else if (res === 'LATE') colorClass = "text-pink-400 border-pink-500/30 bg-pink-500/10";
-                  else if (res === 'FAIL') colorClass = "text-red-500 border-red-500/30 bg-red-500/10";
-
-                  return (
-                    <div key={i} className={`flex items-center justify-center py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-colors ${colorClass}`}>
-                      {res || "-"}
-                    </div>
-                  );
-                })}
-              </div>
+            {/* 상세 결과 박스: 약자 제거 및 전체 단어 출력 */}
+            <div className="grid grid-cols-5 gap-2 pb-4 border-b border-slate-800">
+              {[0, 1, 2, 3, 4].map((i) => {
+                const res = testResult.results[i];
+                let colorClass = "text-slate-700 border-slate-800 bg-slate-950/50"; 
+                if (res === 'SAFE') colorClass = "text-green-400 border-green-500/30 bg-green-500/10";
+                else if (res === 'EARLY') colorClass = "text-amber-400 border-amber-500/30 bg-amber-500/10";
+                else if (res === 'LATE') colorClass = "text-pink-400 border-pink-500/30 bg-pink-500/10";
+                return (
+                  <div key={i} className={`flex items-center justify-center py-2.5 rounded-xl border text-[8px] font-black uppercase tracking-tighter transition-all ${colorClass}`}>
+                    {res || "-"}
+                  </div>
+                );
+              })}
             </div>
+            <p className="text-[9px] text-slate-500 text-center font-medium mt-4 leading-relaxed opacity-70">
+              {t.safeCondition}
+            </p>
           </div>
         )}
       </main>
