@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ⏱️ 서버캐치 (ServerCatch)
 
-## Getting Started
+**[서버캐치 ServerCatch](https://server-catch.vercel.app/)**
 
-First, run the development server:
+네트워크 지연 시간(RTT)을 계산하여 목표 서버의 정확한 정각(Zero-Point)을 타격할 수 있도록 도와주는 초정밀 서버시간 동기화 및 캘리브레이션 웹 애플리케이션입니다. 수강신청, 티켓팅 등 밀리초(ms) 단위의 정밀도가 요구되는 작업에 최적화되어 있습니다.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 1. 🛠 기술 스택 (Tech Stack)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+* **Framework:** Next.js (App Router)
+* **Language:** TypeScript
+* **Styling:** Tailwind CSS
+* **Deployment:** Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 2. ⚙️ Offset 측정 및 판정 방식
 
-To learn more about Next.js, take a look at the following resources:
+이 프로젝트의 핵심은 클라이언트와 타겟 서버 간의 네트워크 지연 속도를 역산하여, 내가 클릭한 패킷이 서버에 '정각'에 도달하도록 **오프셋(Offset)**을 찾아내는 것입니다.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 🔍 Offset 측정 (Deep Sync) 로직
+1. **초기 스캔:** 15ms 간격으로 패킷을 발송하여, 타겟 서버의 시간(초)이 바뀌는 순간을 포착하여 대략적인 기준 오프셋을 정합니다.
+2. **미세 캘리브레이션:** 포착된 오프셋을 기준으로 타이밍 테스트를 실시합니다.
+3. 오차 판정 결과(`EARLY` 또는 `LATE`)에 따라 오프셋 값을 **±15ms 단위로 자동 보정**하며, 연속으로 3회 이상 `SAFE` 판정을 받을 때까지 이 과정을 반복하여 최적의 영점을 잡습니다.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 🎯 타이밍 테스트 판정 (Success / Early / Late)
+ms단위의 응답을 지원하지 않는 서버가 많기 떄문에, 아래의 방법으로 오프셋이 정확한지 판정합니다.
 
-## Deploy on Vercel
+오프셋의 정확도를 검증하기 위해, 목표 시간(Target Time)을 기준으로 2개의 패킷을 연속 발송하여 서버 도달 시간을 분석합니다.
+* **Packet A:** 목표 시간 `-50ms` 시점에 발송
+* **Packet B:** 목표 시간 `0ms` (정각) 시점에 발송
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+도달 시간(`arrivalTime`)을 분석하여 다음과 같이 상태를 판정합니다.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+* 🟢 **SAFE (안전):** Packet A는 이전 초(n-1s)에 도달하고, Packet B는 정각(n.000s)에 도달한 경우. (서버 도달 오차가 0ms ~ 50ms 이내로 타격에 가장 이상적인 상태)
+* 🟡 **EARLY (빠름):** Packet A와 Packet B가 모두 이전 초(n-1s)에 도달한 경우. (클릭이 너무 빨리 서버에 도달함 ➡️ 오프셋 감소 필요)
+* 🔴 **LATE (느림):** Packet A와 Packet B가 모두 정각(n.000s) 또는 그 이후에 도달한 경우. (클릭이 서버에 늦게 도달함 ➡️ 오프셋 증가 필요)
+* ⚫ **FAIL (실패):** 네트워크 불안정 등으로 인해 패킷이 유실되거나 예상 범위를 벗어난 경우.
+
+---
+
+## 3. 🚀 사용 방법 (How to Use)
+
+1. **타겟 URL 입력:** 상단 입력창에 시간을 동기화하고 싶은 타겟 서버의 URL을 입력합니다. (예: `https://www.google.com`)
+2. **동기화 (SYNC) 진행:** `동기화` 버튼을 클릭합니다. 시스템이 자동으로 네트워크 지연을 스캔하고 최적의 오프셋을 찾아냅니다. (`성공` 상태가 될 때까지 대기)
+3. **타이밍 테스트:** `타이밍 테스트` 버튼을 눌러 현재 잡힌 오프셋이 정확한지 5회 연속 테스트를 진행합니다.
+   * 성공률이 낮게 나온다면 수동으로 `미세조정(+1, -1 등)` 버튼을 눌러 오프셋을 조절할 수 있습니다.
+4. **실전 수강신청 및 티켓팅:** 동기화가 완료된 중앙의 메인 시계를 확인합니다. 시계가 표시하는 시간에 맞춰 목표 시간 **정각**에 타겟 사이트의 버튼을 클릭하면 됩니다. (이미 네트워크 속도가 포함된 시간이므로 미리 누를 필요가 없습니다.)
